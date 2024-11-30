@@ -85,7 +85,7 @@ export const Hero: React.FC = () => {
           ease: "easeInOut"
         }}
       >
-        <RankImage src="./challenger.png" alt="Challenger Rank" />
+        <RankImage src="/ranks/challenger.png" alt="Challenger Rank" />
       </FloatingLogo>
       
       <FloatingLogo
@@ -100,7 +100,7 @@ export const Hero: React.FC = () => {
           ease: "easeInOut"
         }}
       >
-        <RankImage src="./challenger.png" alt="Challenger Rank" />
+        <RankImage src="/ranks/challenger.png" alt="Challenger Rank" />
       </FloatingLogo>
     </HeroSection>
   )

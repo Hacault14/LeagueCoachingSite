@@ -2,9 +2,10 @@ import React, { useState } from 'react'
 import { Layout } from '@/components/layout/Layout'
 import styled from 'styled-components'
 import { motion } from 'framer-motion'
+import Image from 'next/image';
 
 const AICoachContainer = styled.div`
-  max-width: 800px;
+  width: 66vw;
   margin: 0 auto;
   padding: 2rem;
 `
@@ -38,9 +39,8 @@ const ContentCard = styled(motion.div)`
 `
 
 const SearchContainer = styled(ContentCard)`
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+  width: 100%;
+  margin-bottom: 2rem;
 `
 
 const FormGroup = styled.div`
@@ -115,8 +115,10 @@ const ErrorText = styled.p`
 `
 
 const InputGroup = styled.div`
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
   gap: 1rem;
+  align-items: flex-end;
 `
 
 const MatchList = styled.div`
@@ -128,22 +130,49 @@ const MatchList = styled.div`
 
 const MatchCard = styled.div`
   background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
-  padding: 1rem;
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 1rem;
+  border-radius: 0;
+  padding: 0.5rem;
+  display: flex;
+  gap: 0.75rem;
   border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.8rem;
+  align-items: center;
+
+  .champion-image {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+  }
+
+  .stats-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    align-items: center;
+    
+    .left {
+      text-align: left;
+    }
+    
+    .center {
+      text-align: center;
+    }
+    
+    .right {
+      text-align: right;
+    }
+  }
 
   .champion {
     font-weight: bold;
     color: ${props => props.theme.colors.primary};
-  }
-
-  .stats {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+    font-size: 0.85rem;
   }
 
   .win {
@@ -195,10 +224,9 @@ const CoachingSection = styled(ContentCard)`
 `
 
 const CoachingGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 1rem;
-  margin-top: 1rem;
 `
 
 const CoachingCard = styled.div`
@@ -211,9 +239,12 @@ const CoachingCard = styled.div`
     color: ${props => props.theme.colors.primary};
     margin-bottom: 1rem;
     font-size: 1.1rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
+  }
+
+  .criticism-point {
+    font-weight: 600;
+    margin-bottom: 1rem;
+    color: ${props => props.theme.colors.text.primary};
   }
 
   ul {
@@ -225,6 +256,7 @@ const CoachingCard = styled.div`
       margin-bottom: 0.5rem;
       padding-left: 1.2rem;
       position: relative;
+      color: ${props => props.theme.colors.text.secondary};
 
       &:before {
         content: "•";
@@ -232,6 +264,76 @@ const CoachingCard = styled.div`
         position: absolute;
         left: 0;
       }
+    }
+  }
+`
+
+const ContentGrid = styled.div`
+  display: grid;
+  grid-template-columns: 35% 63%;
+  gap: 2%;
+  width: 100%;
+`
+
+const StatsSection = styled(ContentCard)`
+  height: fit-content;
+  margin-top: 2rem;
+`
+
+interface RankSectionProps {
+  tier: string;
+}
+
+const RankSection = styled(ContentCard)<RankSectionProps>`
+  height: fit-content;
+  margin: 2rem 0 1rem 0;
+
+  .rank-display {
+    display: flex;
+    gap: 1.5rem;
+    align-items: center;
+    
+    .rank-image {
+      width: 80px;
+      height: 80px;
+      object-fit: contain;
+    }
+    
+    .rank-info-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    
+    .rank-info {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      
+      .rank-name {
+        font-size: 1.2rem;
+        font-weight: bold;
+        color: ${props => getRankColor(props.tier as string)};
+      }
+      
+      .lp {
+        color: ${props => props.theme.colors.text.secondary};
+        font-size: 1rem;
+      }
+    }
+
+    .role-and-winrate {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: ${props => props.theme.colors.text.secondary};
+      font-size: 1rem;
+      margin-top: 0.5rem;
+    }
+
+    .winrate {
+      color: ${props => props.theme.colors.text.secondary};
     }
   }
 `
@@ -251,30 +353,77 @@ interface Match {
   timestamp: number;
 }
 
-const formatCoachingInsights = (text: string) => {
-  const sections = {
-    strengths: '',
-    weaknesses: '',
-    improvements: '',
-    champions: ''
-  };
+interface ChampionStat {
+  championName: string;
+  gamesPlayed: number;
+  winRate: string;
+  avgKills: string;
+  avgDeaths: string;
+  avgAssists: string;
+  kda: string;
+  avgCSPerMin: string;
+  avgCSPerGame: number;
+}
 
-  // Split the text into sections based on headers
-  const parts = text.split(/(?=Strengths:|Weaknesses:|Improvements:|Champion Recommendations:)/i);
+const formatCoachingInsights = (text: string) => {
+  const goals: { header: string; suggestions: string[] }[] = [];
+  
+  // Split by "[Goal X]" markers
+  const parts = text.split(/\[Goal \d+\]/g).filter(Boolean);
   
   parts.forEach(part => {
-    if (part.match(/^Strengths:/i)) {
-      sections.strengths = part.replace(/^Strengths:/i, '').trim();
-    } else if (part.match(/^Weaknesses:/i)) {
-      sections.weaknesses = part.replace(/^Weaknesses:/i, '').trim();
-    } else if (part.match(/^Improvements:/i)) {
-      sections.improvements = part.replace(/^Improvements:/i, '').trim();
-    } else if (part.match(/^Champion Recommendations:/i)) {
-      sections.champions = part.replace(/^Champion Recommendations:/i, '').trim();
+    const lines = part.split('\n').filter(Boolean);
+    if (lines.length >= 2) {
+      // First non-empty line after the [Goal X] marker is our header
+      const header = lines[0].trim();
+      const suggestions = lines
+        .slice(1)  // Skip the header line
+        .filter(line => line.trim().startsWith('-'))
+        .map(line => line.trim().substring(1).trim());
+      
+      if (header && suggestions.length > 0) {
+        goals.push({ header, suggestions });
+      }
     }
   });
 
-  return sections;
+  return goals;
+};
+
+const getRankImageUrl = (tier: string) => {
+  const lowerTier = tier?.toLowerCase() || 'unranked';
+  return `http://localhost:3000/ranks/${lowerTier}.png`;
+};
+
+const getChampionImageUrl = (championName: string) => {
+  return `https://ddragon.leagueoflegends.com/cdn/13.24.1/img/champion/${championName}.png`;
+};
+
+const formatRoleName = (role: string): string => {
+  const roleMap: { [key: string]: string } = {
+    'Top': 'Top Laner',
+    'Jungle': 'Jungler',
+    'Mid': 'Mid Laner',
+    'ADC': 'Bot Laner',
+    'Support': 'Support'
+  };
+  return roleMap[role] || role;
+};
+
+const getRankColor = (tier: string): string => {
+  const colors: { [key: string]: string } = {
+    'IRON': '#91767c',
+    'BRONZE': '#a6744b',
+    'SILVER': '#97b0bc',
+    'GOLD': '#edb347',
+    'PLATINUM': '#4ba1a1',
+    'EMERALD': '#4ba174',
+    'DIAMOND': '#7d7ce5',
+    'MASTER': '#9d4dc3',
+    'GRANDMASTER': '#c9382c',
+    'CHALLENGER': '#f4c874',
+  };
+  return colors[tier.toUpperCase()] || '#00a8ff';
 };
 
 export default function AICoach() {
@@ -283,7 +432,12 @@ export default function AICoach() {
   const [region, setRegion] = useState('na1')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [data, setData] = useState<{ matches: Match[] } | null>(null)
+  const [data, setData] = useState<{
+    matches?: Match[];
+    championStats: ChampionStat[];
+    rankedStats?: any[];
+    mainRole?: string;
+  } | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [coachingInsights, setCoachingInsights] = useState<string>('');
 
@@ -318,6 +472,8 @@ export default function AICoach() {
       }
 
       const data = await response.json();
+      console.log('Raw GPT Response:', data.advice);
+      //console.log('Parsed Criticisms:', formatCoachingInsights(data.advice));
       setCoachingInsights(data.advice);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate coaching insights');
@@ -393,18 +549,18 @@ export default function AICoach() {
                   style={{ width: '100px' }}
                 />
               </FormGroup>
-            </InputGroup>
 
-            <FormGroup>
-              <Label>Region</Label>
-              <Select value={region} onChange={(e) => setRegion(e.target.value)}>
-                {regions.map((region) => (
-                  <option key={region.value} value={region.value}>
-                    {region.label}
-                  </option>
-                ))}
-              </Select>
-            </FormGroup>
+              <FormGroup>
+                <Label>Region</Label>
+                <Select value={region} onChange={(e) => setRegion(e.target.value)}>
+                  {regions.map((region) => (
+                    <option key={region.value} value={region.value}>
+                      {region.label}
+                    </option>
+                  ))}
+                </Select>
+              </FormGroup>
+            </InputGroup>
 
             <Button
               type="submit"
@@ -418,66 +574,135 @@ export default function AICoach() {
           {error && <ErrorText>{error}</ErrorText>}
 
           {data && (
-            <>
-              <MatchList>
-                <h3>Recent Matches:</h3>
-                {data.matches.map((match: any) => (
-                  <MatchCard key={match.gameId}>
-                    <div className="stats">
-                      <div className="champion">{match.champion}</div>
-                      <div className="role">{match.role}</div>
-                      <div className={match.win ? 'win' : 'loss'}>
-                        {match.win ? 'Victory' : 'Defeat'}
+            <ContentGrid>
+              <div>
+                <RankSection
+                  tier={data.rankedStats?.find((queue: any) => 
+                    queue.queueType === 'RANKED_SOLO_5x5')?.tier || 'unranked'}
+                >
+                  <div className="rank-display">
+                    {data.rankedStats?.find((queue: any) => queue.queueType === 'RANKED_SOLO_5x5') ? (
+                      <>
+                        <Image 
+                          className="rank-image"
+                          src={getRankImageUrl(data.rankedStats.find((queue: any) => 
+                            queue.queueType === 'RANKED_SOLO_5x5').tier)}
+                          alt="Rank emblem"
+                          width={80}
+                          height={80}
+                          priority
+                        />
+                        <div className="rank-info-container">
+                          <div className="rank-info">
+                            <span 
+                              className="rank-name"
+                              data-tier={data.rankedStats.find((queue: any) => 
+                                queue.queueType === 'RANKED_SOLO_5x5').tier}
+                            >
+                              {data.rankedStats.find((queue: any) => queue.queueType === 'RANKED_SOLO_5x5').tier} {' '}
+                              {data.rankedStats.find((queue: any) => queue.queueType === 'RANKED_SOLO_5x5').rank}
+                            </span>
+                            <span className="lp">
+                              {data.rankedStats.find((queue: any) => queue.queueType === 'RANKED_SOLO_5x5').leaguePoints} LP
+                            </span>
+                          </div>
+                          {data.mainRole && (
+                            <div className="role-and-winrate">
+                              <span>{formatRoleName(data.mainRole)}</span>
+                              <span className="winrate">
+                                {((data.rankedStats.find((queue: any) => 
+                                  queue.queueType === 'RANKED_SOLO_5x5').wins /
+                                  (data.rankedStats.find((queue: any) => 
+                                    queue.queueType === 'RANKED_SOLO_5x5').wins +
+                                   data.rankedStats.find((queue: any) => 
+                                    queue.queueType === 'RANKED_SOLO_5x5').losses)) * 100).toFixed(1)}% WR
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <Image 
+                          className="rank-image"
+                          src={getRankImageUrl('unranked')}
+                          alt="Unranked emblem"
+                          width={80}
+                          height={80}
+                          priority
+                        />
+                        <div className="rank-info">Unranked</div>
+                      </>
+                    )}
+                  </div>
+                </RankSection>
+                <StatsSection>
+                  <h3>Champion Statistics</h3>
+                  {data.championStats.map((champion: any) => (
+                    <MatchCard key={champion.championName}>
+                      <Image
+                        className="champion-image"
+                        src={getChampionImageUrl(champion.championName)}
+                        alt={champion.championName}
+                        width={40}
+                        height={40}
+                        priority
+                      />
+                      <div className="stats-container">
+                        <div className="row">
+                          <div className="left champion">{champion.championName}</div>
+                          <div className="center">
+                            KDA: {champion.kda}
+                          </div>
+                          <div className="right">
+                            <span className={Number(champion.winRate) >= 50 ? 'win' : 'loss'}>
+                              {champion.winRate}% WR
+                            </span>
+                          </div>
+                        </div>
+                        
+                        <div className="row">
+                          <div className="left">
+                            CS/min: {champion.avgCSPerMin}
+                          </div>
+                          <div className="center">
+                            {champion.avgKills}/{champion.avgDeaths}/{champion.avgAssists}
+                          </div>
+                          <div className="right">
+                            {champion.gamesPlayed} games
+                          </div>
+                        </div>
                       </div>
-                      <div>{match.gameMode}</div>
-                    </div>
-                    
-                    <div className="stats">
-                      <div>
-                        <StatLabel>KDA: </StatLabel>
-                        {match.kills}/{match.deaths}/{match.assists} ({match.kda})
-                      </div>
-                      <div>
-                        <StatLabel>CS: </StatLabel>
-                        {match.cs} ({match.csPerMin}/min)
-                      </div>
-                    </div>
-                    
-                    <div className="stats">
-                      <div>
-                        <StatLabel>Duration: </StatLabel>
-                        {match.gameDuration} minutes
-                      </div>
-                      <div>
-                        <StatLabel>Played: </StatLabel>
-                        {new Date(match.timestamp).toLocaleDateString()}
-                      </div>
-                    </div>
-                  </MatchCard>
-                ))}
-              </MatchList>
-              
+                    </MatchCard>
+                  ))}
+                </StatsSection>
+              </div>
+
               <CoachingSection>
                 <h3>Coaching Analysis</h3>
                 <div className="stats-summary">
                   <div className="stat-item">
                     <div className="label">Average CS/min</div>
                     <div className="value">
-                      {(data.matches.reduce((acc: number, match: any) => 
-                        acc + parseFloat(match.csPerMin), 0) / data.matches.length).toFixed(1)}
+                      {(data.championStats.reduce((acc, champ) => 
+                        acc + parseFloat(champ.avgCSPerMin), 0) / data.championStats.length).toFixed(1)}
                     </div>
                   </div>
                   <div className="stat-item">
                     <div className="label">Win Rate</div>
                     <div className="value">
-                      {((data.matches.filter((m: any) => m.win).length / data.matches.length) * 100).toFixed(1)}%
+                      {data.rankedStats?.find((queue: any) => queue.queueType === 'RANKED_SOLO_5x5')
+                        ? ((data.rankedStats.find((queue: any) => queue.queueType === 'RANKED_SOLO_5x5').wins /
+                          (data.rankedStats.find((queue: any) => queue.queueType === 'RANKED_SOLO_5x5').wins +
+                           data.rankedStats.find((queue: any) => queue.queueType === 'RANKED_SOLO_5x5').losses)) * 100).toFixed(1)
+                        : 0}%
                     </div>
                   </div>
                   <div className="stat-item">
                     <div className="label">Average KDA</div>
                     <div className="value">
-                      {((data.matches.reduce((acc: number, m: any) => 
-                        acc + parseFloat(m.kda), 0)) / data.matches.length).toFixed(2)}
+                      {(data.championStats.reduce((acc, champ) => 
+                        acc + parseFloat(champ.kda), 0) / data.championStats.length).toFixed(2)}
                     </div>
                   </div>
                 </div>
@@ -485,32 +710,23 @@ export default function AICoach() {
                 {isAnalyzing ? (
                   <div>Analyzing your performance...</div>
                 ) : coachingInsights ? (
-                  <>
-                    <CoachingGrid>
-                      <CoachingCard>
-                        <h4>💪 Strengths</h4>
-                        <div>{formatCoachingInsights(coachingInsights).strengths}</div>
+                  <CoachingGrid>
+                    {formatCoachingInsights(coachingInsights).map((goal, index) => (
+                      <CoachingCard key={index}>
+                        <h4>{goal.header}</h4>
+                        <div className="coaching-content">
+                          <ul>
+                            {goal.suggestions.map((suggestion, i) => (
+                              <li key={i}>{suggestion}</li>
+                            ))}
+                          </ul>
+                        </div>
                       </CoachingCard>
-                      
-                      <CoachingCard>
-                        <h4>🎯 Areas for Improvement</h4>
-                        <div>{formatCoachingInsights(coachingInsights).weaknesses}</div>
-                      </CoachingCard>
-                      
-                      <CoachingCard>
-                        <h4>📈 Action Items</h4>
-                        <div>{formatCoachingInsights(coachingInsights).improvements}</div>
-                      </CoachingCard>
-                      
-                      <CoachingCard>
-                        <h4>🏆 Champion Recommendations</h4>
-                        <div>{formatCoachingInsights(coachingInsights).champions}</div>
-                      </CoachingCard>
-                    </CoachingGrid>
-                  </>
+                    ))}
+                  </CoachingGrid>
                 ) : null}
               </CoachingSection>
-            </>
+            </ContentGrid>
           )}
         </SearchContainer>
       </AICoachContainer>

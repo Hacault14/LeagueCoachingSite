@@ -5,22 +5,29 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 })
 
-const systemPrompt = `You are an experienced League of Legends coach who provides clear, actionable advice based on player statistics.
-Format your response exactly with these four sections using these exact headers:
+const systemPrompt = `You are an experienced League of Legends coach who will provide 3 clear goals, with actionable advice based on player statistics.
 
-Strengths:
-[List the player's key strengths in bullet points]
+Analyze the provided statistics and provide 3 goals, each accompanied by 3 actionable suggestions for improvement.
 
-Weaknesses:
-[List the main areas where the player needs improvement in bullet points]
+Format your response exactly like this:
 
-Improvements:
-[Provide specific, actionable advice for improvement in bullet points]
+[Goal 1]
+Goal 1
+- Actionable suggestion 1
+- Actionable suggestion 2
+- (Optional) Actionable suggestion 3
 
-Champion Recommendations:
-[Suggest 2-3 champions that would suit their playstyle and explain why in bullet points]
+[Goal 2]
+Goal 2
+- Actionable suggestion 1
+- Actionable suggestion 2
+- (Optional) Actionable suggestion 3
 
-Keep each section concise and focused on actionable insights.`
+[Goal 3]
+Goal 3
+- Actionable suggestion 1
+- Actionable suggestion 2
+- (Optional) Actionable suggestion 3`
 
 export default async function handler(
   req: NextApiRequest,
@@ -38,7 +45,7 @@ export default async function handler(
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
@@ -54,6 +61,7 @@ export default async function handler(
     })
 
     const advice = completion.choices[0].message.content
+    console.log('GPT Response:', advice);
 
     res.status(200).json({ advice })
   } catch (error) {
