@@ -70,21 +70,42 @@ async function getRankedStats(summonerId: string, region: string, apiKey: string
 }
 
 function calculateChampionStats(matches: any[], puuid: string) {
-  const championStats: { [key: string]: ChampionStats } = {};
+  if (!matches || matches.length === 0) {
+    console.warn('No matches provided for champion stats calculation');
+    return [];
+  }
 
-  matches.forEach(match => {
+  const championStats: { [key: string]: ChampionStats } = {};
+  let validMatchesCount = 0;
+
+  matches.forEach((match, index) => {
+    if (!match || !match.info) {
+      console.warn(`Invalid match data at index ${index}`);
+      return;
+    }
+
     // Skip remade games (games shorter than 5 minutes)
-    if (match.info.gameDuration < 300) return;  // 300 seconds = 5 minutes
+    if (match.info.gameDuration < 300) {
+      console.log(`Skipping remade game ${match.info.gameId}`);
+      return;
+    }
     
     // Only process ranked games
-    if (match.info.queueId !== 420 && match.info.queueId !== 440) return;
+    if (match.info.queueId !== 420 && match.info.queueId !== 440) {
+      console.log(`Skipping non-ranked game ${match.info.gameId} (Queue: ${match.info.queueId})`);
+      return;
+    }
     
     const playerStats = match.info.participants.find(
       (p: any) => p.puuid === puuid
     );
 
-    if (!playerStats) return;
+    if (!playerStats) {
+      console.warn(`Player not found in match ${match.info.gameId}`);
+      return;
+    }
 
+    validMatchesCount++;
     const championName = playerStats.championName;
     const gameDurationMinutes = match.info.gameDuration / 60;
 
@@ -104,13 +125,20 @@ function calculateChampionStats(matches: any[], puuid: string) {
 
     championStats[championName].gamesPlayed++;
     championStats[championName].wins += playerStats.win ? 1 : 0;
-    championStats[championName].totalKills += playerStats.kills;
-    championStats[championName].totalDeaths += playerStats.deaths;
-    championStats[championName].totalAssists += playerStats.assists;
-    championStats[championName].totalCS += playerStats.totalMinionsKilled + playerStats.neutralMinionsKilled;
+    championStats[championName].totalKills += playerStats.kills || 0;
+    championStats[championName].totalDeaths += playerStats.deaths || 0;
+    championStats[championName].totalAssists += playerStats.assists || 0;
+    championStats[championName].totalCS += (playerStats.totalMinionsKilled || 0) + (playerStats.neutralMinionsKilled || 0);
     championStats[championName].totalGameDuration += gameDurationMinutes;
-    championStats[championName].totalVisionScore += playerStats.visionScore;
+    championStats[championName].totalVisionScore += playerStats.visionScore || 0;
   });
+
+  console.log(`Processed ${validMatchesCount} valid ranked matches out of ${matches.length} total matches`);
+
+  if (validMatchesCount === 0) {
+    console.warn('No valid ranked matches found for champion stats calculation');
+    return [];
+  }
 
   return Object.values(championStats)
     .map(stats => ({
@@ -269,107 +297,189 @@ function determineRole(playerStats: any): string {
   return 'Unknown';
 }
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
-  const { gameName, tagLine, region = 'na1' } = req.query as { 
-    gameName: string, 
-    tagLine: string, 
-    region: string 
-  };
+async function getAccountData(gameName: string, tagLine: string, apiKey: string) {
+  const response = await fetch(
+    `https://americas.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(gameName)}/${encodeURIComponent(tagLine)}`,
+    {
+      headers: {
+        'X-Riot-Token': apiKey
+      }
+    }
+  );
 
-  if (!gameName || !tagLine) {
-    return res.status(400).json({ error: 'Game name and tag line are required' });
+  if (!response.ok) {
+    console.error('Failed to fetch account data:', await response.text());
+    return null;
   }
 
-  if (!process.env.RIOT_API_KEY) {
-    console.error('RIOT_API_KEY is not set in environment variables');
-    return res.status(500).json({ error: 'Server configuration error' });
+  return response.json();
+}
+
+async function getSummonerData(puuid: string, region: string, apiKey: string) {
+  const response = await fetch(
+    `https://${region}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${puuid}`,
+    {
+      headers: {
+        'X-Riot-Token': apiKey
+      }
+    }
+  );
+
+  if (!response.ok) {
+    console.error('Failed to fetch summoner data:', await response.text());
+    return null;
   }
 
+  return response.json();
+}
+
+async function getMatchIds(puuid: string, region: string, apiKey: string) {
+  const routingValue = REGION_ROUTING[region] || 'americas';
+  
+  // First get all recent matches without queue filter
+  const response = await fetch(
+    `https://${routingValue}.api.riotgames.com/lol/match/v5/matches/by-puuid/${puuid}/ids?start=0&count=100`,
+    {
+      headers: {
+        'X-Riot-Token': apiKey
+      }
+    }
+  );
+
+  if (!response.ok) {
+    console.error('Failed to fetch match IDs:', await response.text());
+    return null;
+  }
+
+  const allMatches = await response.json();
+  console.log(`Found ${allMatches.length} total matches`);
+  
+  // Get details for the first few matches to determine their queue types
+  const firstBatch = allMatches.slice(0, 20); // Check first 20 matches
+  const matchDetails = await Promise.all(
+    firstBatch.map((matchId: string) => getMatchDetails(matchId, region, apiKey))
+  );
+
+  // Filter for ranked games (queue IDs 420 and 440)
+  const rankedMatches = matchDetails
+    .filter(match => match !== null && (match.info.queueId === 420 || match.info.queueId === 440))
+    .map(match => match.metadata.matchId);
+
+  console.log(`Found ${rankedMatches.length} ranked matches out of ${firstBatch.length} checked matches`);
+  
+  return rankedMatches;
+}
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    // Step 1: Get PUUID using Riot ID
-    const accountUrl = `https://americas.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(gameName)}/${encodeURIComponent(tagLine)}`;
-    const accountResponse = await fetch(accountUrl, {
-      headers: {
-        'X-Riot-Token': process.env.RIOT_API_KEY
-      }
-    });
-
-    if (!accountResponse.ok) {
-      throw new Error(`Account API Error: ${await accountResponse.text()}`);
-    }
-
-    const accountData = await accountResponse.json();
-    const puuid = accountData.puuid;
-
-    // Step 2: Get summoner data using PUUID
-    const regionalApi = `https://${region.toLowerCase()}.api.riotgames.com`;
-    const summonerUrl = `${regionalApi}/lol/summoner/v4/summoners/by-puuid/${puuid}`;
+    const { gameName, tagLine, region = 'na1' } = req.query as { 
+      gameName: string, 
+      tagLine: string, 
+      region: string 
+    };
     
-    const summonerResponse = await fetch(summonerUrl, {
-      headers: {
-        'X-Riot-Token': process.env.RIOT_API_KEY
-      }
-    });
-
-    if (!summonerResponse.ok) {
-      throw new Error(`Summoner API Error: ${await summonerResponse.text()}`);
+    if (!gameName || !tagLine) {
+      return res.status(400).json({ error: 'Game name and tag line are required' });
     }
 
-    const summonerData = await summonerResponse.json();
-
-    // Step 3: Get ranked stats
-    const rankedStats = await getRankedStats(summonerData.id, region, process.env.RIOT_API_KEY);
-
-    // Step 4: Get recent matches
-    const routingValue = REGION_ROUTING[region as string] || 'americas';
-    const matchListUrl = `https://${routingValue}.api.riotgames.com/lol/match/v5/matches/by-puuid/${puuid}/ids?queue=420&start=0&count=100`;
-    
-    const matchListResponse = await fetch(matchListUrl, {
-      headers: {
-        'X-Riot-Token': process.env.RIOT_API_KEY
-      }
-    });
-
-    if (!matchListResponse.ok) {
-      throw new Error(`Match list API Error: ${await matchListResponse.text()}`);
+    if (!process.env.RIOT_API_KEY) {
+      console.error('RIOT_API_KEY is not set in environment variables');
+      return res.status(500).json({ error: 'Server configuration error' });
     }
 
-    const matchIds = await matchListResponse.json();
+    try {
+      console.log(`Fetching data for ${gameName}#${tagLine} in region ${region}`);
+      
+      // Step 1: Get PUUID using Riot ID
+      const accountData = await getAccountData(gameName, tagLine, process.env.RIOT_API_KEY);
+      if (!accountData) {
+        console.error('Account not found for:', gameName, tagLine);
+        return res.status(404).json({ error: 'Account not found' });
+      }
+      console.log('Account found:', accountData.puuid);
 
-    // Step 5: Get match details with rate limiting
-    const matchDetails = await getMatchDetailsWithRateLimit(matchIds, region, process.env.RIOT_API_KEY);
+      // Step 2: Get summoner data using PUUID
+      const summonerData = await getSummonerData(accountData.puuid, region, process.env.RIOT_API_KEY);
+      if (!summonerData) {
+        console.error('Summoner data not found for PUUID:', accountData.puuid);
+        return res.status(404).json({ error: 'Summoner data not found' });
+      }
+      console.log('Summoner data found:', summonerData.id);
 
-    // Step 6: Calculate stats
-    const championStats = calculateChampionStats(
-      matchDetails.filter(match => match !== null),
-      puuid
-    );
+      // Step 3: Get ranked stats
+      const rankedStats = await getRankedStats(summonerData.id, region, process.env.RIOT_API_KEY);
+      if (!rankedStats) {
+        console.warn('No ranked stats found for summoner:', summonerData.id);
+      } else {
+        console.log('Found ranked stats:', rankedStats.length, 'queues');
+      }
 
-    const roleStats = calculateRoleStats(matchDetails.filter(match => match !== null), puuid);
-    const mainRole = Object.entries(roleStats)
-      .sort(([_, a], [__, b]) => b.games - a.games)[0];
+      // Step 4: Get match IDs
+      const matchIds = await getMatchIds(accountData.puuid, region, process.env.RIOT_API_KEY);
+      if (!matchIds || matchIds.length === 0) {
+        console.error('No matches found for PUUID:', accountData.puuid);
+        return res.status(404).json({ 
+          error: 'No ranked matches found',
+          details: 'The player has no recent ranked games in Solo Queue or Flex Queue'
+        });
+      }
+      console.log(`Found ${matchIds.length} total matches`);
 
-    // Create coaching prompt
-    const coachingPrompt = createCoachingPrompt(rankedStats, championStats, roleStats);
+      // Step 5: Get match details with rate limiting
+      console.log(`Fetching details for ${matchIds.length} matches...`);
+      const matchDetails = await getMatchDetailsWithRateLimit(matchIds.slice(0, 20), region, process.env.RIOT_API_KEY);
+      const validMatches = matchDetails.filter(match => match !== null);
+      
+      if (validMatches.length === 0) {
+        console.error('No valid matches found after filtering');
+        return res.status(404).json({ 
+          error: 'No valid matches found',
+          details: 'Could not retrieve details for any of the matches'
+        });
+      }
+      console.log(`Successfully fetched ${validMatches.length} valid matches out of ${matchIds.length} total matches`);
 
-    res.status(200).json({
-      account: accountData,
-      summoner: summonerData,
-      rankedStats,
-      championStats,
-      roleStats,
-      mainRole: mainRole[0],  // Send just the role name
-      coachingPrompt
-    });
+      // Step 6: Calculate stats
+      const championStats = calculateChampionStats(validMatches, accountData.puuid);
+      const roleStats = calculateRoleStats(validMatches, accountData.puuid);
+      const mainRole = Object.entries(roleStats)
+        .sort(([_, a], [__, b]) => (b as RoleStats).games - (a as RoleStats).games)
+        .map(([role, stats]) => ({
+          role,
+          stats
+        }))[0];
 
-  } catch (error) {
+      // Step 7: Create coaching prompt
+      const coachingPrompt = createCoachingPrompt(rankedStats, championStats, roleStats);
+
+      // Return all data
+      res.status(200).json({
+        account: accountData,
+        summoner: summonerData,
+        rankedStats,
+        championStats,
+        roleStats,
+        mainRole,
+        coachingPrompt,
+        debug: {
+          totalMatches: matchIds.length,
+          validMatches: validMatches.length,
+          processedChampions: championStats.length,
+          region: region,
+          routingValue: REGION_ROUTING[region] || 'americas'
+        }
+      });
+
+    } catch (error: any) {
+      console.error('Detailed error:', error);
+      res.status(500).json({ 
+        error: 'Failed to fetch data',
+        details: error instanceof Error ? error.message : 'Unknown error',
+        path: error?.response?.url || 'Unknown path'
+      });
+    }
+  } catch (error: any) {
     console.error('Detailed error:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch data',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    });
+    res.status(500).json({ error: 'An error occurred while processing your request', details: error.message });
   }
 } 

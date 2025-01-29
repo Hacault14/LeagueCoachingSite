@@ -365,6 +365,15 @@ interface ChampionStat {
   avgCSPerGame: number;
 }
 
+interface RoleData {
+  role: string;
+  stats: {
+    games: number;
+    wins: number;
+    percentage: number;
+  };
+}
+
 const formatCoachingInsights = (text: string) => {
   const goals: { header: string; suggestions: string[] }[] = [];
   
@@ -427,8 +436,7 @@ const getRankColor = (tier: string): string => {
 };
 
 export default function AICoach() {
-  const [gameName, setGameName] = useState('')
-  const [tagLine, setTagLine] = useState('')
+  const [riotId, setRiotId] = useState('')
   const [region, setRegion] = useState('na1')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -436,7 +444,7 @@ export default function AICoach() {
     matches?: Match[];
     championStats: ChampionStat[];
     rankedStats?: any[];
-    mainRole?: string;
+    mainRole?: RoleData;
   } | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [coachingInsights, setCoachingInsights] = useState<string>('');
@@ -454,6 +462,23 @@ export default function AICoach() {
     { value: 'tr1', label: 'Turkey' },
     { value: 'ru', label: 'Russia' },
   ]
+
+  const parseRiotId = (riotId: string): { gameName: string; tagLine: string } | null => {
+    // Handle both formats: "Name#TAG" and "Name TAG"
+    const separators = ['#', ' '];
+    let gameName, tagLine;
+
+    for (const separator of separators) {
+      if (riotId.includes(separator)) {
+        [gameName, tagLine] = riotId.split(separator);
+        if (gameName && tagLine) {
+          return { gameName: gameName.trim(), tagLine: tagLine.trim() };
+        }
+      }
+    }
+
+    return null;
+  }
 
   const getCoachingInsights = async (prompt: string) => {
     setIsAnalyzing(true);
@@ -487,9 +512,16 @@ export default function AICoach() {
     setLoading(true)
     setError('')
     
+    const parsedId = parseRiotId(riotId);
+    if (!parsedId) {
+      setError('Invalid Riot ID format. Please use format: Name#TAG');
+      setLoading(false);
+      return;
+    }
+
     try {
       const response = await fetch(
-        `/api/summoner?gameName=${encodeURIComponent(gameName)}&tagLine=${encodeURIComponent(tagLine)}&region=${region}`
+        `/api/summoner?gameName=${encodeURIComponent(parsedId.gameName)}&tagLine=${encodeURIComponent(parsedId.tagLine)}&region=${region}`
       )
       const data = await response.json()
       
@@ -529,24 +561,15 @@ export default function AICoach() {
           
           <form onSubmit={handleSubmit}>
             <InputGroup>
-              <FormGroup>
-                <Label>Game Name</Label>
+              <FormGroup style={{ flex: 1 }}>
+                <Label>Riot ID</Label>
                 <Input
                   required
-                  placeholder="PlayerName"
-                  value={gameName}
-                  onChange={(e) => setGameName(e.target.value)}
-                />
-              </FormGroup>
-              
-              <FormGroup>
-                <Label>Tag Line</Label>
-                <Input
-                  required
-                  placeholder="NA1"
-                  value={tagLine}
-                  onChange={(e) => setTagLine(e.target.value)}
-                  style={{ width: '100px' }}
+                  placeholder="PlayerName#NA1"
+                  value={riotId}
+                  onChange={(e) => setRiotId(e.target.value)}
+                  pattern="^[A-Za-z0-9 ]+[#\s][A-Za-z0-9]+$"
+                  title="Please enter your Riot ID in the format: Name#TAG"
                 />
               </FormGroup>
 
@@ -608,14 +631,9 @@ export default function AICoach() {
                           </div>
                           {data.mainRole && (
                             <div className="role-and-winrate">
-                              <span>{formatRoleName(data.mainRole)}</span>
+                              <span>{formatRoleName(data.mainRole.role)}</span>
                               <span className="winrate">
-                                {((data.rankedStats.find((queue: any) => 
-                                  queue.queueType === 'RANKED_SOLO_5x5').wins /
-                                  (data.rankedStats.find((queue: any) => 
-                                    queue.queueType === 'RANKED_SOLO_5x5').wins +
-                                   data.rankedStats.find((queue: any) => 
-                                    queue.queueType === 'RANKED_SOLO_5x5').losses)) * 100).toFixed(1)}% WR
+                                {((data.mainRole.stats.wins / data.mainRole.stats.games) * 100).toFixed(1)}% WR
                               </span>
                             </div>
                           )}
