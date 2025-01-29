@@ -1,4 +1,4 @@
-# League Coaching Site
+# LeagueCoachingSite
 
 An AI-powered League of Legends coaching platform that provides personalized insights and analysis for players looking to improve their gameplay.
 
@@ -21,8 +21,8 @@ Before you begin, ensure you have:
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/league-coaching-site.git
-cd league-coaching-site
+git clone https://github.com/yourusername/LeagueCoachingSite.git
+cd LeagueCoachingSite
 ```
 
 2. Install dependencies:
