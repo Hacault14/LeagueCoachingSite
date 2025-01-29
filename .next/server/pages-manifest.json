@@ -1,0 +1,12 @@
+{
+  "/_app": "pages/_app.js",
+  "/_error": "pages/_error.js",
+  "/_document": "pages/_document.js",
+  "/contact": "pages/contact.js",
+  "/about": "pages/about.js",
+  "/booking": "pages/booking.js",
+  "/": "pages/index.js",
+  "/api/coaching": "pages/api/coaching.js",
+  "/ai-coach": "pages/ai-coach.js",
+  "/api/summoner": "pages/api/summoner.js"
+}
